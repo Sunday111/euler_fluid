@@ -1,0 +1,9 @@
+{
+    "ModuleType": "Executable",
+    "Dependencies": {
+        "Public": [],
+        "Private": [
+            "klgl"
+        ]
+    }
+}
