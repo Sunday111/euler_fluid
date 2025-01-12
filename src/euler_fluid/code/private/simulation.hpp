@@ -7,17 +7,6 @@
 namespace euler_fluid
 {
 
-enum class FieldType
-{
-    U,
-    V,
-    S
-};
-}  // namespace euler_fluid
-
-namespace euler_fluid
-{
-
 using Vec2f = edt::Vec2f;
 using Vec2uz = edt::Vec2<size_t>;
 
@@ -27,7 +16,12 @@ public:
     EulerFluidSimulation(float density, edt::Vec2<size_t> grid_size, float cell_height)
         : grid_size_{grid_size + 2},  // sentinels
           density_{density},
-          h_{cell_height}
+          h_{cell_height},
+          h1_{1.f / h_},
+          h2_{h_ / 2},
+          sampling_delta_u_{0, h2_},
+          sampling_delta_v_{h2_, 0},
+          sampling_delta_s_{h2_, h2_}
     {
         num_cells_ = grid_size_.x() * grid_size_.y();
         s_.resize(num_cells_, 0.f);
@@ -136,47 +130,24 @@ private:
         return (v_[(i - 1) * ny + j] + v_[i * ny + j] + v_[(i - 1) * ny + j + 1] + v_[i * ny + j + 1]) * 0.25f;
     }
 
-    template <FieldType type>
-    [[nodiscard]] constexpr float SampleField(float x, float y) const
+    [[nodiscard]] constexpr float SampleField(const Vec2f& xy, const std::vector<float>& f, const Vec2f& delta) const
     {
         const auto [nx, ny] = grid_size_.Tuple();
         const auto [nxf, nyf] = grid_size_.Cast<float>().Tuple();
-        float h = h_;
-        float h1 = 1.f / h;
-        float h2 = 0.5f * h;
+        float h1 = 1.f / h_;
 
-        x = std::clamp(x, h, nxf * h);
-        y = std::clamp(y, h, nyf * h);
+        auto [x, y] = xy.Tuple();
+        auto [dx, dy] = delta.Tuple();
 
-        float dx = 0.f;
-        float dy = 0.f;
-        std::span<const float> f;
-
-        if constexpr (type == FieldType::U)
-        {
-            f = u_;
-            dy = h2;
-        }
-
-        if constexpr (type == FieldType::V)
-        {
-            f = v_;
-            dx = h2;
-        }
-
-        if constexpr (type == FieldType::S)
-        {
-            f = m_;
-            dx = h2;
-            dy = h2;
-        }
+        x = std::clamp(x, h_, nxf * h_);
+        y = std::clamp(y, h_, nyf * h_);
 
         size_t x0 = std::min(static_cast<size_t>(std::floor((x - dx) * h1)), nx - 1);
-        float tx = ((x - dx) - static_cast<float>(x0) * h) * h1;
+        float tx = ((x - dx) - static_cast<float>(x0) * h_) * h1;
         size_t x1 = std::min(x0 + 1, nx - 1);
 
         size_t y0 = std::min(static_cast<size_t>(std::floor((y - dy) * h1)), ny - 1);
-        float ty = ((y - dy) - static_cast<float>(y0) * h) * h1;
+        float ty = ((y - dy) - static_cast<float>(y0) * h_) * h1;
         size_t y1 = std::min(y0 + 1, ny - 1);
 
         float sx = 1.f - tx;
@@ -195,9 +166,6 @@ private:
 
         const auto [nx, ny] = grid_size_.Tuple();
 
-        float h = h_;
-        float h2 = 0.5f * h_;
-
         for (size_t i = 1; i != nx; i++)
         {
             float fi = static_cast<float>(i);
@@ -207,26 +175,26 @@ private:
                 float fj = static_cast<float>(j);
                 if (s_[i * ny + j] != 0.f && s_[(i - 1) * ny + j] != 0.f && j + 1 < ny)
                 {
-                    float x = fi * h;
-                    float y = fj * h + h2;
+                    float x = fi * h_;
+                    float y = fj * h_ + h2_;
                     float u = u_[i * ny + j];
                     float v = AvgV(i, j);
                     x = x - dt * u;
                     y = y - dt * v;
-                    u = SampleField<FieldType::U>(x, y);
+                    u = SampleField({x, y}, u_, sampling_delta_u_);
                     new_u_[i * ny + j] = u;
                 }
 
                 // v component
                 if (s_[i * ny + j] != 0.f && s_[i * ny + j - 1] != 0.f && i + 1 < nx)
                 {
-                    float x = fi * h + h2;
-                    float y = fj * h;
+                    float x = fi * h_ + h2_;
+                    float y = fj * h_;
                     float u = AvgU(i, j);
                     float v = v_[i * ny + j];
                     x = x - dt * u;
                     y = y - dt * v;
-                    v = SampleField<FieldType::V>(x, y);
+                    v = SampleField({x, y}, v_, sampling_delta_v_);
                     new_v_[i * ny + j] = v;
                 }
             }
@@ -241,7 +209,6 @@ private:
         new_m_ = m_;
 
         const auto [nx, ny] = grid_size_.Tuple();
-        float h2 = 0.5f * h_;
 
         for (size_t i = 1; i < nx - 1; i++)
         {
@@ -251,10 +218,10 @@ private:
                 {
                     float u = (u_[i * ny + j] + u_[(i + 1) * ny + j]) * 0.5f;
                     float v = (v_[i * ny + j] + v_[i * ny + j + 1]) * 0.5f;
-                    float x = static_cast<float>(i) * h_ + h2 - dt * u;
-                    float y = static_cast<float>(j) * h_ + h2 - dt * v;
+                    float x = static_cast<float>(i) * h_ + h2_ - dt * u;
+                    float y = static_cast<float>(j) * h_ + h2_ - dt * v;
 
-                    new_m_[i * ny + j] = SampleField<FieldType::S>(x, y);
+                    new_m_[i * ny + j] = SampleField({x, y}, m_, sampling_delta_s_);
                 }
             }
         }
@@ -268,6 +235,11 @@ public:
     edt::Vec2<size_t> grid_size_{100, 100};
     float density_ = 1000.f;
     float h_ = {};
+    float h1_ = 1.f / h_;
+    float h2_ = h_ / 2;
+    edt::Vec2f sampling_delta_u_{0, h2_};
+    edt::Vec2f sampling_delta_v_{h2_, 0};
+    edt::Vec2f sampling_delta_s_{h2_, h2_};
     size_t num_cells_{};
     std::vector<float> s_{};
     std::vector<float> u_{};
