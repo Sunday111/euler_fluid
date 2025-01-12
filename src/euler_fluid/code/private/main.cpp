@@ -71,10 +71,10 @@ class EulerFluidApp : public klgl::Application
         auto& f = *fluid_;
         constexpr auto render_area = edt::FloatRange2Df::FromMinMax({-1, -1}, {1, 1});
         constexpr auto render_area_size = render_area.Extent();
-        const auto rect_size = render_area_size / f.grid_size_.Cast<float>();
-        const auto [min_p, max_p] = std::ranges::minmax_element(f.p_);
+        const auto rect_size = render_area_size / f.grid_size.Cast<float>();
+        const auto [min_p, max_p] = std::ranges::minmax_element(f.p);
 
-        const auto [nx, ny] = f.grid_size_.Tuple();
+        const auto [nx, ny] = f.grid_size.Tuple();
 
         for (size_t x = 0; x != nx; ++x)
         {
@@ -87,8 +87,8 @@ class EulerFluidApp : public klgl::Application
 
                 if (show_pressure_)
                 {
-                    float p = f.p_[x * ny + y];
-                    float s = f.m_[x * ny + y];
+                    float p = f.p[x * ny + y];
+                    float s = f.m[x * ny + y];
                     color = GetSciColor(p, *min_p, *max_p);
                     if (show_smoke_)
                     {
@@ -99,7 +99,7 @@ class EulerFluidApp : public klgl::Application
                 }
                 else if (show_smoke_)
                 {
-                    float s = f.m_[x * ny + y];
+                    float s = f.m[x * ny + y];
                     color[0] = static_cast<uint8_t>(255.f * s);
                     color[1] = static_cast<uint8_t>(255.f * s);
                     color[2] = static_cast<uint8_t>(255.f * s);
@@ -108,7 +108,7 @@ class EulerFluidApp : public klgl::Application
                         color = GetSciColor(s, 0.0, 1.0);
                     }
                 }
-                else if (f.s_[x * ny + y] == 0.f)
+                else if (f.s[x * ny + y] == 0.f)
                 {
                     color = {};
                 }
@@ -215,8 +215,8 @@ class EulerFluidApp : public klgl::Application
         const size_t numY = static_cast<size_t>(std::floor(domainHeight / cell_height));
         fluid_ = std::make_unique<EulerFluidSimulation>(density_, edt::Vec2<size_t>(numX, numY), cell_height);
 
-        const auto [nx, ny] = fluid_->grid_size_.Tuple();
-        const auto [nxf, nyf] = fluid_->grid_size_.Cast<float>().Tuple();
+        const auto [nx, ny] = fluid_->grid_size.Tuple();
+        const auto [nxf, nyf] = fluid_->grid_size.Cast<float>().Tuple();
         auto& f = *fluid_;
         switch (scene_type_)
         {
@@ -228,7 +228,7 @@ class EulerFluidApp : public klgl::Application
                 {
                     float s = 1;                                 // fluid
                     if (i == 0 || i == nx - 1 || j == 0) s = 0;  // solid
-                    f.s_[i * ny + j] = s;
+                    f.s[i * ny + j] = s;
                 }
             }
             gravity_ = -9.81f;
@@ -249,11 +249,11 @@ class EulerFluidApp : public klgl::Application
                 {
                     float s = 1.0;                                 // fluid
                     if (i == 0 || j == 0 || j == ny - 1) s = 0.0;  // solid
-                    f.s_[i * ny + j] = s;
+                    f.s[i * ny + j] = s;
 
                     if (i == 1)
                     {
-                        f.u_[i * ny + j] = inVel;
+                        f.u[i * ny + j] = inVel;
                     }
                 }
             }
@@ -264,7 +264,7 @@ class EulerFluidApp : public klgl::Application
 
             for (size_t j = minJ; j < maxJ; j++)
             {
-                f.m_[j] = 0.0f;
+                f.m[j] = 0.0f;
             }
 
             SetObstacle({0.4f, 0.5f}, true);
@@ -306,31 +306,31 @@ class EulerFluidApp : public klgl::Application
         obstacle_ = position;
         float squared_radius = obstacle_radius_ * obstacle_radius_;
         auto& f = *fluid_;
-        const auto [nx, ny] = fluid_->grid_size_.Tuple();
+        const auto [nx, ny] = fluid_->grid_size.Tuple();
 
         for (size_t i = 1; i < nx - 2; i++)
         {
             for (size_t j = 1; j < ny - 2; j++)
             {
-                f.s_[i * ny + j] = 1;
+                f.s[i * ny + j] = 1;
 
-                const edt::Vec2f delta = (edt::Vec2<size_t>(i, j).Cast<float>() + .5f) * f.h_ - position;
+                const edt::Vec2f delta = (edt::Vec2<size_t>(i, j).Cast<float>() + .5f) * f.h - position;
                 if (delta.SquaredLength() < squared_radius)
                 {
-                    f.s_[i * ny + j] = 0;
+                    f.s[i * ny + j] = 0;
                     if (scene_type_ == SceneType::Paint)
                     {
-                        f.m_[i * ny + j] = .5f + .5f * std::sin(GetTimeSeconds());
+                        f.m[i * ny + j] = .5f + .5f * std::sin(GetTimeSeconds());
                     }
                     else
                     {
-                        f.m_[i * ny + j] = 1;
+                        f.m[i * ny + j] = 1;
                     }
 
-                    f.u_[i * ny + j] = v.x();
-                    f.u_[(i + 1) * ny + j] = v.x();
-                    f.v_[i * ny + j] = v.y();
-                    f.v_[i * ny + j + 1] = v.y();
+                    f.u[i * ny + j] = v.x();
+                    f.u[(i + 1) * ny + j] = v.x();
+                    f.v[i * ny + j] = v.y();
+                    f.v[i * ny + j + 1] = v.y();
                 }
             }
         }
