@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+#include <execution>
 #include <vector>
 
 #include "EverydayTools/Math/Matrix.hpp"
@@ -207,12 +209,10 @@ private:
             {
                 if (s_[i * ny + j] != 0.f)
                 {
-                    float u = (u_[i * ny + j] + u_[(i + 1) * ny + j]) * 0.5f;
-                    float v = (v_[i * ny + j] + v_[i * ny + j + 1]) * 0.5f;
-                    float x = static_cast<float>(i) * h_ + h2_ - dt * u;
-                    float y = static_cast<float>(j) * h_ + h2_ - dt * v;
-
-                    new_m_[i * ny + j] = SampleField({x, y}, m_, sampling_delta_s_);
+                    auto uv =
+                        edt::Vec2f{u_[i * ny + j] + u_[(i + 1) * ny + j], v_[i * ny + j] + v_[i * ny + j + 1]} * 0.5f;
+                    auto xy = edt::Vec2<size_t>{i, j}.Cast<float>() * h_ + h2_ - dt * uv;
+                    new_m_[i * ny + j] = SampleField(xy, m_, sampling_delta_s_);
                 }
             }
         }
