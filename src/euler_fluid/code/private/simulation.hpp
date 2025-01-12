@@ -171,31 +171,22 @@ private:
             float fi = static_cast<float>(i);
             for (size_t j = 1; j != ny; j++)
             {
+                const auto fij = edt::Vec2f{fi, static_cast<float>(j)};
+
                 // u component
-                float fj = static_cast<float>(j);
                 if (s_[i * ny + j] != 0.f && s_[(i - 1) * ny + j] != 0.f && j + 1 < ny)
                 {
-                    float x = fi * h_;
-                    float y = fj * h_ + h2_;
-                    float u = u_[i * ny + j];
-                    float v = AvgV(i, j);
-                    x = x - dt * u;
-                    y = y - dt * v;
-                    u = SampleField({x, y}, u_, sampling_delta_u_);
-                    new_u_[i * ny + j] = u;
+                    Vec2f uv{u_[i * ny + j], AvgV(i, j)};
+                    auto xy = fij * h_ + sampling_delta_u_ - dt * uv;
+                    new_u_[i * ny + j] = SampleField(xy, u_, sampling_delta_u_);
                 }
 
                 // v component
                 if (s_[i * ny + j] != 0.f && s_[i * ny + j - 1] != 0.f && i + 1 < nx)
                 {
-                    float x = fi * h_ + h2_;
-                    float y = fj * h_;
-                    float u = AvgU(i, j);
-                    float v = v_[i * ny + j];
-                    x = x - dt * u;
-                    y = y - dt * v;
-                    v = SampleField({x, y}, v_, sampling_delta_v_);
-                    new_v_[i * ny + j] = v;
+                    Vec2f uv{AvgU(i, j), v_[i * ny + j]};
+                    Vec2f xy = fij * h_ + sampling_delta_v_ - dt * uv;
+                    new_v_[i * ny + j] = SampleField(xy, v_, sampling_delta_v_);
                 }
             }
         }
