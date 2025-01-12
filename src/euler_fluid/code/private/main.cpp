@@ -59,9 +59,7 @@ class EulerFluidApp : public klgl::Application
 
     void Tick() override
     {
-        const auto sim_begin = std::chrono::high_resolution_clock::now();
-        fluid_->Simulate(dt_, num_iterations_, gravity_, over_relaxation_);
-        const auto sim_end = std::chrono::high_resolution_clock::now();
+        const auto sim_stats = fluid_->Simulate(dt_, num_iterations_, gravity_, over_relaxation_);
 
         painter_->BeginDraw();
         painter_->DrawCircle({.center = {-0.3f, 0.3f}, .size = {.2f, .2f}, .color = colors::green});
@@ -88,7 +86,7 @@ class EulerFluidApp : public klgl::Application
                 if (show_pressure_)
                 {
                     float p = f.p[x * ny + y];
-                    float s = f.m[x * ny + y];
+                    float s = f.m_[x * ny + y];
                     color = GetSciColor(p, *min_p, *max_p);
                     if (show_smoke_)
                     {
@@ -99,7 +97,7 @@ class EulerFluidApp : public klgl::Application
                 }
                 else if (show_smoke_)
                 {
-                    float s = f.m[x * ny + y];
+                    float s = f.m_[x * ny + y];
                     color[0] = static_cast<uint8_t>(255.f * s);
                     color[1] = static_cast<uint8_t>(255.f * s);
                     color[2] = static_cast<uint8_t>(255.f * s);
@@ -138,9 +136,19 @@ class EulerFluidApp : public klgl::Application
             const float framerate = GetFramerate();
             klgl::SimpleTypeWidget("framerate", framerate);
 
-            const auto ms =
-                std::chrono::duration_cast<std::chrono::duration<float, std::milli>>(sim_end - sim_begin).count();
-            klgl::SimpleTypeWidget("sim ms", ms);
+            if (ImGui::CollapsingHeader("Sim timers"))
+            {
+                float ms = sim_stats.integrate.count();
+                klgl::SimpleTypeWidget("integrate", ms);
+                ms = sim_stats.solve.count();
+                klgl::SimpleTypeWidget("solve", ms);
+                ms = sim_stats.extrapolate.count();
+                klgl::SimpleTypeWidget("extrapolate", ms);
+                ms = sim_stats.advect_smoke.count();
+                klgl::SimpleTypeWidget("advect smoke", ms);
+                ms = sim_stats.advect_velocity.count();
+                klgl::SimpleTypeWidget("advect velocity", ms);
+            }
 
             if (edt::Vec2f obstacle_pos = obstacle_; klgl::SimpleTypeWidget("obstacle", obstacle_pos))
             {
@@ -253,7 +261,7 @@ class EulerFluidApp : public klgl::Application
 
                     if (i == 1)
                     {
-                        f.u[i * ny + j] = inVel;
+                        f.u(i * ny + j) = inVel;
                     }
                 }
             }
@@ -264,7 +272,7 @@ class EulerFluidApp : public klgl::Application
 
             for (size_t j = minJ; j < maxJ; j++)
             {
-                f.m[j] = 0.0f;
+                f.m_[j] = 0.0f;
             }
 
             SetObstacle({0.4f, 0.5f}, true);
@@ -320,17 +328,17 @@ class EulerFluidApp : public klgl::Application
                     f.s[i * ny + j] = 0;
                     if (scene_type_ == SceneType::Paint)
                     {
-                        f.m[i * ny + j] = .5f + .5f * std::sin(GetTimeSeconds());
+                        f.m_[i * ny + j] = .5f + .5f * std::sin(GetTimeSeconds());
                     }
                     else
                     {
-                        f.m[i * ny + j] = 1;
+                        f.m_[i * ny + j] = 1;
                     }
 
-                    f.u[i * ny + j] = v.x();
-                    f.u[(i + 1) * ny + j] = v.x();
-                    f.v[i * ny + j] = v.y();
-                    f.v[i * ny + j + 1] = v.y();
+                    f.u(i * ny + j) = v.x();
+                    f.u((i + 1) * ny + j) = v.x();
+                    f.v(i * ny + j) = v.y();
+                    f.v(i * ny + j + 1) = v.y();
                 }
             }
         }

@@ -1,5 +1,8 @@
 #pragma once
 
+#include <EverydayTools/Time/MeasureTime.hpp>
+#include <chrono>
+#include <functional>
 #include <vector>
 
 #include "EverydayTools/Math/Math.hpp"
@@ -14,6 +17,20 @@ using Vec2uz = edt::Vec2<size_t>;
 class EulerFluidSimulation
 {
 public:
+    using Clock = std::chrono::high_resolution_clock;
+    using Duration = std::chrono::duration<float, std::milli>;
+
+    class UpdateDuration
+    {
+    public:
+        Duration integrate;
+        Duration solve;
+        Duration extrapolate;
+        Duration advect_velocity;
+        Duration advect_smoke;
+        Duration total;
+    };
+
     EulerFluidSimulation(float density, Vec2uz in_grid_size, float cell_height)
         : grid_size{in_grid_size + 2},  // sentinels
           max_coord{grid_size - 1},
@@ -29,27 +46,46 @@ public:
     {
         num_cells_ = grid_size.x() * grid_size.y();
         s.resize(num_cells_, 0.f);
-        u.resize(num_cells_, 0.f);
-        v.resize(num_cells_, 0.f);
-        m.resize(num_cells_, 0.f);
+        uv_.resize(num_cells_, Vec2f{});
+        new_uv_.resize(num_cells_, Vec2f{});
+        m_.resize(num_cells_, 0.f);
         p.resize(num_cells_, 0.f);
-        new_u.resize(num_cells_, 0.f);
-        new_v.resize(num_cells_, 0.f);
-        new_m.resize(num_cells_, 0.f);
+        new_m_.resize(num_cells_, 0.f);
 
-        std::ranges::fill(m, 1.f);
+        std::ranges::fill(m_, 1.f);
     }
 
-    void Simulate(float dt, size_t num_iterations, float gravity, float over_relaxation)
+    UpdateDuration Simulate(float dt, size_t num_iterations, float gravity, float over_relaxation)
     {
-        Integrate(dt, gravity);
-        std::ranges::fill(p, 0.f);
-        SolveIncompressibility(num_iterations, dt, over_relaxation);
+        using Self = EulerFluidSimulation;
 
-        Extrapolate();
-        AdvectVelocity(dt);
-        AdvectSmoke(dt);
+        UpdateDuration d{};
+
+        d.total = edt::MeasureTime(
+            [&]
+            {
+                d.integrate = edt::MeasureTime(std::bind_front(&Self::Integrate, this, dt, gravity));
+                std::ranges::fill(p, 0.f);
+
+                d.solve = edt::MeasureTime(
+                    std::bind_front(&Self::SolveIncompressibility, this, num_iterations, dt, over_relaxation));
+
+                d.extrapolate = edt::MeasureTime(std::bind_front(&Self::Extrapolate, this));
+                d.advect_velocity = edt::MeasureTime(std::bind_front(&Self::AdvectVelocity, this, dt));
+                d.advect_smoke = edt::MeasureTime(std::bind_front(&Self::AdvectSmoke, this, dt));
+            });
+
+        return d;
     }
+
+    [[nodiscard]] float& v(size_t i) { return uv_[i].y(); }
+    [[nodiscard]] const float& v(size_t i) const { return uv_[i].y(); }
+
+    [[nodiscard]] float& u(size_t i) { return uv_[i].x(); }
+    [[nodiscard]] const float& u(size_t i) const { return uv_[i].x(); }
+
+    [[nodiscard]] float& m(size_t i) { return m_[i]; }
+    [[nodiscard]] const float& m(size_t i) const { return m_[i]; }
 
 private:
     // Step 1: modify velocity value
@@ -61,7 +97,7 @@ private:
             {
                 if (s[i * ny + j] != 0.f && s[i * ny + j - 1] != 0.f)
                 {
-                    v[i * ny + j] += gravity * dt;
+                    v(i * ny + j) += gravity * dt;
                 }
             }
         }
@@ -88,15 +124,15 @@ private:
 
                     if (sum == 0.f) continue;
 
-                    float div = u[(i + 1) * ny + j] - u[i * ny + j] + v[i * ny + j + 1] - v[i * ny + j];
+                    float div = u((i + 1) * ny + j) - u(i * ny + j) + v(i * ny + j + 1) - v(i * ny + j);
 
                     float pk = -div / sum;
                     pk *= over_relaxation;
                     p[i * ny + j] += cp * pk;
-                    u[i * ny + j] -= sx0 * pk;
-                    u[(i + 1) * ny + j] += sx1 * pk;
-                    v[i * ny + j] -= sy0 * pk;
-                    v[i * ny + j + 1] += sy1 * pk;
+                    u(i * ny + j) -= sx0 * pk;
+                    u((i + 1) * ny + j) += sx1 * pk;
+                    v(i * ny + j) -= sy0 * pk;
+                    v(i * ny + j + 1) += sy1 * pk;
                 }
             }
         }
@@ -106,28 +142,31 @@ private:
     {
         for (size_t i = 0; i != nx; i++)
         {
-            u[i * ny + 0] = u[i * ny + 1];
-            u[i * ny + ny - 1] = u[i * ny + ny - 2];
+            u(i * ny + 0) = u(i * ny + 1);
+            u(i * ny + ny - 1) = u(i * ny + ny - 2);
         }
 
         for (size_t j = 0; j != ny; j++)
         {
-            v[0 * ny + j] = v[1 * ny + j];
-            v[(nx - 1) * ny + j] = v[(nx - 2) * ny + j];
+            v(0 * ny + j) = v(1 * ny + j);
+            v((nx - 1) * ny + j) = v((nx - 2) * ny + j);
         }
     }
 
     [[nodiscard]] constexpr float AvgU(size_t i, size_t j) const
     {
-        return (u[i * ny + j - 1] + u[i * ny + j] + u[(i + 1) * ny + j - 1] + u[(i + 1) * ny + j]) * 0.25f;
+        return (u(i * ny + j - 1) + u(i * ny + j) + u((i + 1) * ny + j - 1) + u((i + 1) * ny + j)) * 0.25f;
     }
 
     [[nodiscard]] constexpr float AvgV(size_t i, size_t j) const
     {
-        return (v[(i - 1) * ny + j] + v[i * ny + j] + v[(i - 1) * ny + j + 1] + v[i * ny + j + 1]) * 0.25f;
+        return (v((i - 1) * ny + j) + v(i * ny + j) + v((i - 1) * ny + j + 1) + v(i * ny + j + 1)) * 0.25f;
     }
 
-    [[nodiscard]] constexpr float SampleField(Vec2f xy, const std::vector<float>& f, const Vec2f& delta) const
+    using ValueGetterMethod = const float& (EulerFluidSimulation::*)(size_t i) const;
+
+    template <auto getter>
+    [[nodiscard]] constexpr float SampleField(Vec2f xy, const Vec2f& delta) const
     {
         xy = edt::Math::Clamp(xy, {h, h}, grid_size.Cast<float>() * h);
         auto p0 = edt::Math::ElementwiseMin(((xy - delta) * h1).Cast<size_t>(), grid_size - 1);
@@ -136,17 +175,18 @@ private:
 
         float sx = 1.f - tx;
         float sy = 1.f - ty;
-        size_t a = p0.x() * ny + p0.y();
-        size_t b = x1 * ny + p0.y();
-        size_t c = x1 * ny + y1;
-        size_t d = p0.x() * ny + y1;
-        return sx * sy * f[a] + tx * sy * f[b] + tx * ty * f[c] + sx * ty * f[d];
+        float a = std::invoke(getter, this, p0.x() * ny + p0.y());
+        float b = std::invoke(getter, this, x1 * ny + p0.y());
+        float c = std::invoke(getter, this, x1 * ny + y1);
+        float d = std::invoke(getter, this, p0.x() * ny + y1);
+        return sx * sy * a + tx * sy * b + tx * ty * c + sx * ty * d;
     }
 
     void AdvectVelocity(float dt)
     {
-        new_u = u;
-        new_v = v;
+        new_uv_ = uv_;
+        constexpr ValueGetterMethod u_getter = &EulerFluidSimulation::u;
+        constexpr ValueGetterMethod v_getter = &EulerFluidSimulation::v;
 
         for (size_t i = 1; i != nx; i++)
         {
@@ -158,28 +198,28 @@ private:
                 // u component
                 if (s[i * ny + j] != 0.f && s[(i - 1) * ny + j] != 0.f && j + 1 < ny)
                 {
-                    Vec2f uv{u[i * ny + j], AvgV(i, j)};
+                    Vec2f uv{u(i * ny + j), AvgV(i, j)};
                     auto xy = fij * h + sampling_delta_u_ - dt * uv;
-                    new_u[i * ny + j] = SampleField(xy, u, sampling_delta_u_);
+                    new_uv_[i * ny + j].x() = SampleField<u_getter>(xy, sampling_delta_u_);
                 }
 
                 // v component
                 if (s[i * ny + j] != 0.f && s[i * ny + j - 1] != 0.f && i + 1 < nx)
                 {
-                    Vec2f uv{AvgU(i, j), v[i * ny + j]};
+                    Vec2f uv{AvgU(i, j), v(i * ny + j)};
                     Vec2f xy = fij * h + sampling_delta_v_ - dt * uv;
-                    new_v[i * ny + j] = SampleField(xy, v, sampling_delta_v_);
+                    new_uv_[i * ny + j].y() = SampleField<v_getter>(xy, sampling_delta_v_);
                 }
             }
         }
 
-        u = new_u;
-        v = new_v;
+        uv_ = new_uv_;
     }
 
     void AdvectSmoke(float dt)
     {
-        new_m = m;
+        new_m_ = m_;
+        constexpr ValueGetterMethod m_getter = &EulerFluidSimulation::m;
 
         for (size_t i = 1; i < nx - 1; i++)
         {
@@ -187,14 +227,14 @@ private:
             {
                 if (s[i * ny + j] != 0.f)
                 {
-                    auto uv = Vec2f{u[i * ny + j] + u[(i + 1) * ny + j], v[i * ny + j] + v[i * ny + j + 1]} * 0.5f;
+                    auto uv = Vec2f{u(i * ny + j) + u((i + 1) * ny + j), v(i * ny + j) + v(i * ny + j + 1)} * 0.5f;
                     auto xy = Vec2uz{i, j}.Cast<float>() * h + h2 - dt * uv;
-                    new_m[i * ny + j] = SampleField(xy, m, sampling_delta_s_);
+                    new_m_[i * ny + j] = SampleField<m_getter>(xy, sampling_delta_s_);
                 }
             }
         }
 
-        m = new_m;
+        m_ = new_m_;
     }
 
     [[nodiscard]] constexpr size_t CoordToIdx(size_t x, size_t y) const noexcept { return x * grid_size.y() + y; }
@@ -213,12 +253,10 @@ public:
     Vec2f sampling_delta_s_{h2, h2};
     size_t num_cells_{};
     std::vector<float> s{};
-    std::vector<float> u{};
-    std::vector<float> v{};
-    std::vector<float> m{};
+    std::vector<Vec2f> uv_{};
+    std::vector<Vec2f> new_uv_{};
+    std::vector<float> m_{};
+    std::vector<float> new_m_{};
     std::vector<float> p{};
-    std::vector<float> new_u{};
-    std::vector<float> new_v{};
-    std::vector<float> new_m{};
 };
 }  // namespace euler_fluid
