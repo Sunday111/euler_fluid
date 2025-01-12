@@ -8,13 +8,13 @@
 namespace euler_fluid
 {
 
-using Vec2f = edt::Vec2f;
+using edt::Vec2f;
 using Vec2uz = edt::Vec2<size_t>;
 
 class EulerFluidSimulation
 {
 public:
-    EulerFluidSimulation(float density, edt::Vec2<size_t> grid_size, float cell_height)
+    EulerFluidSimulation(float density, Vec2uz grid_size, float cell_height)
         : grid_size_{grid_size + 2},  // sentinels
           max_coord_{grid_size - 1},
           density_{density},
@@ -162,7 +162,7 @@ private:
             float fi = static_cast<float>(i);
             for (size_t j = 1; j != ny; j++)
             {
-                const auto fij = edt::Vec2f{fi, static_cast<float>(j)};
+                const auto fij = Vec2f{fi, static_cast<float>(j)};
 
                 // u component
                 if (s_[i * ny + j] != 0.f && s_[(i - 1) * ny + j] != 0.f && j + 1 < ny)
@@ -198,9 +198,8 @@ private:
             {
                 if (s_[i * ny + j] != 0.f)
                 {
-                    auto uv =
-                        edt::Vec2f{u_[i * ny + j] + u_[(i + 1) * ny + j], v_[i * ny + j] + v_[i * ny + j + 1]} * 0.5f;
-                    auto xy = edt::Vec2<size_t>{i, j}.Cast<float>() * h_ + h2_ - dt * uv;
+                    auto uv = Vec2f{u_[i * ny + j] + u_[(i + 1) * ny + j], v_[i * ny + j] + v_[i * ny + j + 1]} * 0.5f;
+                    auto xy = Vec2uz{i, j}.Cast<float>() * h_ + h2_ - dt * uv;
                     new_m_[i * ny + j] = SampleField(xy, m_, sampling_delta_s_);
                 }
             }
@@ -212,15 +211,15 @@ private:
     [[nodiscard]] constexpr size_t CoordToIdx(size_t x, size_t y) const noexcept { return x * grid_size_.y() + y; }
 
 public:
-    edt::Vec2<size_t> grid_size_{100, 100};
-    edt::Vec2<size_t> max_coord_ = grid_size_ - 1;
+    Vec2uz grid_size_{100, 100};
+    Vec2uz max_coord_ = grid_size_ - 1;
     float density_ = 1000.f;
     float h_ = {};
     float h1_ = 1.f / h_;
     float h2_ = h_ / 2;
-    edt::Vec2f sampling_delta_u_{0, h2_};
-    edt::Vec2f sampling_delta_v_{h2_, 0};
-    edt::Vec2f sampling_delta_s_{h2_, h2_};
+    Vec2f sampling_delta_u_{0, h2_};
+    Vec2f sampling_delta_v_{h2_, 0};
+    Vec2f sampling_delta_s_{h2_, h2_};
     size_t num_cells_{};
     std::vector<float> s_{};
     std::vector<float> u_{};
