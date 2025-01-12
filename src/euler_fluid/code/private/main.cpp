@@ -3,23 +3,34 @@
 #include <EverydayTools/Math/FloatRange.hpp>
 #include <EverydayTools/Math/Math.hpp>
 #include <algorithm>
+#include <ass/enum_set.hpp>
 
+#include "ass/enum/enum_as_index_magic_enum.hpp"
 #include "klgl/application.hpp"
 #include "klgl/error_handling.hpp"
 #include "klgl/opengl/gl_api.hpp"
 #include "klgl/rendering/painter2d.hpp"
 #include "klgl/ui/simple_type_widget.hpp"
 #include "klgl/window.hpp"
+#include "magic_enum.hpp"
 
 namespace colors
 {
 inline constexpr edt::Vec4u8 red{255, 0, 0, 255};
 inline constexpr edt::Vec4u8 green{0, 255, 0, 255};
 inline constexpr edt::Vec4u8 blue{0, 0, 255, 255};
+inline constexpr edt::Vec4u8 white = edt::Vec4u8{} + 255;
 }  // namespace colors
 
 namespace euler_fluid
 {
+enum class SceneType : uint8_t
+{
+    WindTunnel,
+    HiresTunnel,
+    Tank,
+    Paint,
+};
 
 enum class FieldType
 {
@@ -27,6 +38,15 @@ enum class FieldType
     V,
     S
 };
+}  // namespace euler_fluid
+
+template <>
+struct ass::EnumIndexConverter<euler_fluid::SceneType> : ass::EnumIndexConverter_MagicEnum<euler_fluid::SceneType>
+{
+};
+
+namespace euler_fluid
+{
 
 class EulerFluidSimulation
 {
@@ -61,6 +81,7 @@ public:
     }
 
 private:
+    // Step 1: modify velocity value
     void Integrate(float dt, float gravity)
     {
         const auto [nx, ny] = grid_size_.Tuple();
@@ -77,6 +98,7 @@ private:
         }
     }
 
+    // Step 2: Making the fluid incompressible
     void SolveIncompressibility(size_t num_iterations, float dt, float over_relaxation)
     {
         const auto [nx, ny] = grid_size_.Tuple();
@@ -284,14 +306,6 @@ public:
     std::vector<float> new_m_;
 };
 
-enum class SceneType : uint8_t
-{
-    WindTunnel,
-    HiresTunnel,
-    Tank,
-    Paint,
-};
-
 [[nodiscard]] constexpr edt::Vec4u8 GetSciColor(float val, float minVal, float maxVal)
 {
     val = std::min(std::max(val, minVal), maxVal - 0.0001f);
@@ -382,6 +396,21 @@ class EulerFluidApp : public klgl::Application
                         color.z() = static_cast<uint8_t>(std::max(0.0f, static_cast<float>(color.z()) - 255.f * s));
                     }
                 }
+                else if (show_smoke_)
+                {
+                    float s = f.m_[x * ny + y];
+                    color[0] = static_cast<uint8_t>(255.f * s);
+                    color[1] = static_cast<uint8_t>(255.f * s);
+                    color[2] = static_cast<uint8_t>(255.f * s);
+                    if (scene_type_ == SceneType::Paint)
+                    {
+                        color = GetSciColor(s, 0.0, 1.0);
+                    }
+                }
+                else if (f.s_[x * ny + y] == 0.f)
+                {
+                    color = {};
+                }
 
                 color.w() = 255;
 
@@ -393,8 +422,17 @@ class EulerFluidApp : public klgl::Application
             }
         }
 
+        if (show_obstacle_)
+        {
+            painter_->DrawCircle({
+                .center = render_area.Uniform(obstacle_),
+                .size = 2 * obstacle_radius_ * render_area_size,
+                .color = colors::white,
+            });
+        }
+
         painter_->EndDraw();
-        if (ImGui::CollapsingHeader("Triangle"))
+        if (ImGui::Begin("Settings"))
         {
             const float framerate = GetFramerate();
             klgl::SimpleTypeWidget("framerate", framerate);
@@ -402,6 +440,46 @@ class EulerFluidApp : public klgl::Application
             const auto ms =
                 std::chrono::duration_cast<std::chrono::duration<float, std::milli>>(sim_end - sim_begin).count();
             klgl::SimpleTypeWidget("sim ms", ms);
+
+            if (edt::Vec2f obstacle_pos = obstacle_; klgl::SimpleTypeWidget("obstacle", obstacle_pos))
+            {
+                SetObstacle(obstacle_pos, true);
+            }
+
+            bool mouse_current_state = ImGui::IsMouseDown(ImGuiMouseButton_Left);
+            if (ImGui::GetIO().WantCaptureMouse)
+            {
+                is_mouse_down_ = false;
+                mouse_current_state = false;
+            }
+
+            const bool reset_obstacle = mouse_current_state && !is_mouse_down_;
+            is_mouse_down_ = mouse_current_state;
+            if (is_mouse_down_)
+            {
+                auto window_size = GetWindow().GetSize2f();
+                auto im_mouse_pos = ImGui::GetMousePos();
+                edt::Vec2f mouse_pos{im_mouse_pos.x, window_size.y() - im_mouse_pos.y};
+
+                edt::Vec2f new_obstacle_position = mouse_pos / window_size;
+                if (new_obstacle_position != obstacle_)
+                {
+                    SetObstacle(mouse_pos / window_size, reset_obstacle);
+                }
+            }
+
+            ImGui::Checkbox("Pressure", &show_pressure_);
+            ImGui::Checkbox("Smoke", &show_smoke_);
+
+            for (const SceneType scene_type : ass::EnumSet<SceneType>::Full())
+            {
+                if (ImGui::Button(magic_enum::enum_name(scene_type).data()) && scene_type != scene_type_)
+                {
+                    SetupScene(scene_type);
+                }
+            }
+
+            ImGui::End();
         }
     }
 
@@ -525,7 +603,7 @@ class EulerFluidApp : public klgl::Application
         if (!reset) v = (position - obstacle_) / dt_;
 
         obstacle_ = position;
-        float r = obstacle_radius_;
+        float squared_radius = obstacle_radius_ * obstacle_radius_;
         auto& f = *fluid_;
         const auto [nx, ny] = fluid_->grid_size_.Tuple();
 
@@ -533,17 +611,15 @@ class EulerFluidApp : public klgl::Application
         {
             for (size_t j = 1; j < ny - 2; j++)
             {
-                f.s_[i * ny + j] = 1.0;
+                f.s_[i * ny + j] = 1;
 
-                float dx = (static_cast<float>(i) + 0.5f) * f.h_ - position.x();
-                float dy = (static_cast<float>(j) + 0.5f) * f.h_ - position.y();
-
-                if (dx * dx + dy * dy < r * r)
+                const edt::Vec2f delta = (edt::Vec2<size_t>(i, j).Cast<float>() + .5f) * f.h_ - position;
+                if (delta.SquaredLength() < squared_radius)
                 {
-                    f.s_[i * ny + j] = 0.0;
+                    f.s_[i * ny + j] = 0;
                     if (scene_type_ == SceneType::Paint)
                     {
-                        f.m_[i * ny + j] = 0.5f + 0.5f * std::sin(GetTimeSeconds());
+                        f.m_[i * ny + j] = .5f + .5f * std::sin(GetTimeSeconds());
                     }
                     else
                     {
@@ -575,6 +651,7 @@ class EulerFluidApp : public klgl::Application
     bool show_streamlines_ = false;
     bool show_velocities_ = false;
     bool show_obstacle_ = false;
+    bool is_mouse_down_ = false;
     edt::Vec2f obstacle_{};
 
     std::unique_ptr<EulerFluidSimulation> fluid_;
