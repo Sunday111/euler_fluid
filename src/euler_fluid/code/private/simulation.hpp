@@ -17,6 +17,8 @@ public:
     EulerFluidSimulation(float density, Vec2uz grid_size, float cell_height)
         : grid_size_{grid_size + 2},  // sentinels
           max_coord_{grid_size - 1},
+          nx{grid_size_.x()},
+          ny{grid_size_.y()},
           density_{density},
           h_{cell_height},
           h1_{1.f / h_},
@@ -53,8 +55,6 @@ private:
     // Step 1: modify velocity value
     void Integrate(float dt, float gravity)
     {
-        const auto [nx, ny] = grid_size_.Tuple();
-
         for (size_t i = 1; i < nx; i++)
         {
             for (size_t j = 1; j < ny - 1; j++)
@@ -70,7 +70,6 @@ private:
     // Step 2: Making the fluid incompressible
     void SolveIncompressibility(size_t num_iterations, float dt, float over_relaxation)
     {
-        const auto [nx, ny] = grid_size_.Tuple();
         float cp = density_ * h_ / dt;
 
         for (size_t iter = 0; iter != num_iterations; iter++)
@@ -105,8 +104,6 @@ private:
 
     void Extrapolate()
     {
-        const auto [nx, ny] = grid_size_.Tuple();
-
         for (size_t i = 0; i != nx; i++)
         {
             u_[i * ny + 0] = u_[i * ny + 1];
@@ -122,20 +119,16 @@ private:
 
     [[nodiscard]] constexpr float AvgU(size_t i, size_t j) const
     {
-        const size_t ny = grid_size_.y();
         return (u_[i * ny + j - 1] + u_[i * ny + j] + u_[(i + 1) * ny + j - 1] + u_[(i + 1) * ny + j]) * 0.25f;
     }
 
     [[nodiscard]] constexpr float AvgV(size_t i, size_t j) const
     {
-        const size_t ny = grid_size_.y();
         return (v_[(i - 1) * ny + j] + v_[i * ny + j] + v_[(i - 1) * ny + j + 1] + v_[i * ny + j + 1]) * 0.25f;
     }
 
     [[nodiscard]] constexpr float SampleField(Vec2f xy, const std::vector<float>& f, const Vec2f& delta) const
     {
-        const auto [nx, ny] = grid_size_.Tuple();
-
         xy = edt::Math::Clamp(xy, {h_, h_}, grid_size_.Cast<float>() * h_);
         auto p0 = edt::Math::ElementwiseMin(((xy - delta) * h1_).Cast<size_t>(), grid_size_ - 1);
         auto [tx, ty] = (((xy - delta) - p0.Cast<float>() * h_) * h1_).Tuple();
@@ -154,8 +147,6 @@ private:
     {
         new_u_ = u_;
         new_v_ = v_;
-
-        const auto [nx, ny] = grid_size_.Tuple();
 
         for (size_t i = 1; i != nx; i++)
         {
@@ -190,8 +181,6 @@ private:
     {
         new_m_ = m_;
 
-        const auto [nx, ny] = grid_size_.Tuple();
-
         for (size_t i = 1; i < nx - 1; i++)
         {
             for (size_t j = 1; j < ny - 1; j++)
@@ -213,6 +202,8 @@ private:
 public:
     Vec2uz grid_size_{100, 100};
     Vec2uz max_coord_ = grid_size_ - 1;
+    size_t nx = grid_size_.x();
+    size_t ny = grid_size_.y();
     float density_ = 1000.f;
     float h_ = {};
     float h1_ = 1.f / h_;
