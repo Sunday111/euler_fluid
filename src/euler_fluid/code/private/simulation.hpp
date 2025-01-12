@@ -1,9 +1,8 @@
 #pragma once
 
-#include <array>
-#include <execution>
 #include <vector>
 
+#include "EverydayTools/Math/Math.hpp"
 #include "EverydayTools/Math/Matrix.hpp"
 
 namespace euler_fluid
@@ -17,6 +16,7 @@ class EulerFluidSimulation
 public:
     EulerFluidSimulation(float density, edt::Vec2<size_t> grid_size, float cell_height)
         : grid_size_{grid_size + 2},  // sentinels
+          max_coord_{grid_size - 1},
           density_{density},
           h_{cell_height},
           h1_{1.f / h_},
@@ -107,13 +107,13 @@ private:
     {
         const auto [nx, ny] = grid_size_.Tuple();
 
-        for (size_t i = 0; i < nx; i++)
+        for (size_t i = 0; i != nx; i++)
         {
             u_[i * ny + 0] = u_[i * ny + 1];
             u_[i * ny + ny - 1] = u_[i * ny + ny - 2];
         }
 
-        for (size_t j = 0; j < ny; j++)
+        for (size_t j = 0; j != ny; j++)
         {
             v_[0 * ny + j] = v_[1 * ny + j];
             v_[(nx - 1) * ny + j] = v_[(nx - 2) * ny + j];
@@ -132,32 +132,21 @@ private:
         return (v_[(i - 1) * ny + j] + v_[i * ny + j] + v_[(i - 1) * ny + j + 1] + v_[i * ny + j + 1]) * 0.25f;
     }
 
-    [[nodiscard]] constexpr float SampleField(const Vec2f& xy, const std::vector<float>& f, const Vec2f& delta) const
+    [[nodiscard]] constexpr float SampleField(Vec2f xy, const std::vector<float>& f, const Vec2f& delta) const
     {
         const auto [nx, ny] = grid_size_.Tuple();
-        const auto [nxf, nyf] = grid_size_.Cast<float>().Tuple();
-        float h1 = 1.f / h_;
 
-        auto [x, y] = xy.Tuple();
-        auto [dx, dy] = delta.Tuple();
-
-        x = std::clamp(x, h_, nxf * h_);
-        y = std::clamp(y, h_, nyf * h_);
-
-        size_t x0 = std::min(static_cast<size_t>(std::floor((x - dx) * h1)), nx - 1);
-        float tx = ((x - dx) - static_cast<float>(x0) * h_) * h1;
-        size_t x1 = std::min(x0 + 1, nx - 1);
-
-        size_t y0 = std::min(static_cast<size_t>(std::floor((y - dy) * h1)), ny - 1);
-        float ty = ((y - dy) - static_cast<float>(y0) * h_) * h1;
-        size_t y1 = std::min(y0 + 1, ny - 1);
+        xy = edt::Math::Clamp(xy, {h_, h_}, grid_size_.Cast<float>() * h_);
+        auto p0 = edt::Math::ElementwiseMin(((xy - delta) * h1_).Cast<size_t>(), grid_size_ - 1);
+        auto [tx, ty] = (((xy - delta) - p0.Cast<float>() * h_) * h1_).Tuple();
+        auto [x1, y1] = edt::Math::ElementwiseMin(p0 + 1, max_coord_).Tuple();
 
         float sx = 1.f - tx;
         float sy = 1.f - ty;
-        size_t a = x0 * ny + y0;
-        size_t b = x1 * ny + y0;
+        size_t a = p0.x() * ny + p0.y();
+        size_t b = x1 * ny + p0.y();
         size_t c = x1 * ny + y1;
-        size_t d = x0 * ny + y1;
+        size_t d = p0.x() * ny + y1;
         return sx * sy * f[a] + tx * sy * f[b] + tx * ty * f[c] + sx * ty * f[d];
     }
 
@@ -224,6 +213,7 @@ private:
 
 public:
     edt::Vec2<size_t> grid_size_{100, 100};
+    edt::Vec2<size_t> max_coord_ = grid_size_ - 1;
     float density_ = 1000.f;
     float h_ = {};
     float h1_ = 1.f / h_;
