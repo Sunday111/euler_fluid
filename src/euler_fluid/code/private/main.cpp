@@ -134,6 +134,7 @@ class EulerFluidApp : public klgl::Application
         if (ImGui::Begin("Settings"))
         {
             const float framerate = GetFramerate();
+            ImGui::Checkbox("Parallel solver", &f.parallel_solver);
             klgl::SimpleTypeWidget("framerate", framerate);
 
             if (ImGui::CollapsingHeader("Sim timers"))

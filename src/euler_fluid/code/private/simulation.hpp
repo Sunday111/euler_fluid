@@ -1,7 +1,9 @@
 #pragma once
 
 #include <EverydayTools/Time/MeasureTime.hpp>
+#include <array>
 #include <chrono>
+#include <execution>
 #include <functional>
 #include <vector>
 
@@ -53,6 +55,21 @@ public:
         new_m_.resize(num_cells_, 0.f);
 
         std::ranges::fill(m_, 1.f);
+
+        for (size_t offset_x = 0; offset_x != 3; ++offset_x)
+        {
+            for (size_t offset_y = 0; offset_y != 3; ++offset_y)
+            {
+                auto& batch = solve_batches_.emplace_back();
+                for (size_t i = 1 + offset_x; i < max_coord.x(); i += 3)
+                {
+                    for (size_t j = 1 + offset_y; j < max_coord.y(); j += 3)
+                    {
+                        batch.push_back({i, j});
+                    }
+                }
+            }
+        }
     }
 
     UpdateDuration Simulate(float dt, size_t num_iterations, float gravity, float over_relaxation)
@@ -108,31 +125,57 @@ private:
     {
         float cp = density_ * h / dt;
 
-        for (size_t iter = 0; iter != num_iterations; iter++)
+        auto solve_at = [&](size_t i, size_t j)
         {
-            for (size_t i = 1; i != max_coord.x(); i++)
+            if (s[i * ny + j] == 0.f) return;
+
+            float sx0 = s[(i - 1) * ny + j];
+            float sx1 = s[(i + 1) * ny + j];
+            float sy0 = s[i * ny + j - 1];
+            float sy1 = s[i * ny + j + 1];
+            float sum = sx0 + sx1 + sy0 + sy1;
+
+            if (sum == 0.f) return;
+
+            float div = u((i + 1) * ny + j) - u(i * ny + j) + v(i * ny + j + 1) - v(i * ny + j);
+
+            float pk = -div / sum;
+            pk *= over_relaxation;
+            p[i * ny + j] += cp * pk;
+            u(i * ny + j) -= sx0 * pk;
+            u((i + 1) * ny + j) += sx1 * pk;
+            v(i * ny + j) -= sy0 * pk;
+            v(i * ny + j + 1) += sy1 * pk;
+        };
+
+        if (parallel_solver)
+        {
+            for (size_t iter = 0; iter != num_iterations; iter++)
             {
-                for (size_t j = 1; j != max_coord.y(); j++)
+                for (const auto& batch : solve_batches_)
                 {
-                    if (s[i * ny + j] == 0.f) continue;
-
-                    float sx0 = s[(i - 1) * ny + j];
-                    float sx1 = s[(i + 1) * ny + j];
-                    float sy0 = s[i * ny + j - 1];
-                    float sy1 = s[i * ny + j + 1];
-                    float sum = sx0 + sx1 + sy0 + sy1;
-
-                    if (sum == 0.f) continue;
-
-                    float div = u((i + 1) * ny + j) - u(i * ny + j) + v(i * ny + j + 1) - v(i * ny + j);
-
-                    float pk = -div / sum;
-                    pk *= over_relaxation;
-                    p[i * ny + j] += cp * pk;
-                    u(i * ny + j) -= sx0 * pk;
-                    u((i + 1) * ny + j) += sx1 * pk;
-                    v(i * ny + j) -= sy0 * pk;
-                    v(i * ny + j + 1) += sy1 * pk;
+                    std::for_each(
+                        std::execution::par_unseq,
+                        batch.begin(),
+                        batch.end(),
+                        [&](const Vec2uz& ij)
+                        {
+                            auto [i, j] = ij.Tuple();
+                            solve_at(i, j);
+                        });
+                }
+            }
+        }
+        else
+        {
+            for (size_t iter = 0; iter != num_iterations; iter++)
+            {
+                for (size_t i = 1; i != max_coord.x(); i++)
+                {
+                    for (size_t j = 1; j != max_coord.x(); j++)
+                    {
+                        solve_at(i, j);
+                    }
                 }
             }
         }
@@ -258,5 +301,8 @@ public:
     std::vector<float> m_{};
     std::vector<float> new_m_{};
     std::vector<float> p{};
+    bool parallel_solver = false;
+
+    std::vector<std::vector<Vec2uz>> solve_batches_;
 };
 }  // namespace euler_fluid
