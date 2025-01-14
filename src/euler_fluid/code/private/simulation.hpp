@@ -1,7 +1,6 @@
 #pragma once
 
 #include <EverydayTools/Time/MeasureTime.hpp>
-#include <array>
 #include <chrono>
 #include <execution>
 #include <functional>
@@ -47,7 +46,7 @@ public:
           sampling_delta_s_{h2, h2}
     {
         num_cells_ = grid_size.x() * grid_size.y();
-        s.resize(num_cells_, 0.f);
+        s_.resize(num_cells_, false);
         uv_.resize(num_cells_, Vec2f{});
         new_uv_.resize(num_cells_, Vec2f{});
         m_.resize(num_cells_, 0.f);
@@ -95,14 +94,16 @@ public:
         return d;
     }
 
-    [[nodiscard]] float& v(size_t i) { return uv_[i].y(); }
-    [[nodiscard]] const float& v(size_t i) const { return uv_[i].y(); }
+    [[nodiscard]] float& v(size_t x, size_t y) { return uv_[x * ny + y].y(); }
+    [[nodiscard]] const float& v(size_t x, size_t y) const { return uv_[x * ny + y].y(); }
 
-    [[nodiscard]] float& u(size_t i) { return uv_[i].x(); }
-    [[nodiscard]] const float& u(size_t i) const { return uv_[i].x(); }
+    [[nodiscard]] float& u(size_t x, size_t y) { return uv_[x * ny + y].x(); }
+    [[nodiscard]] const float& u(size_t x, size_t y) const { return uv_[x * ny + y].x(); }
 
-    [[nodiscard]] float& m(size_t i) { return m_[i]; }
-    [[nodiscard]] const float& m(size_t i) const { return m_[i]; }
+    [[nodiscard]] float& m(size_t x, size_t y) { return m_[x * ny + y]; }
+    [[nodiscard]] const float& m(size_t x, size_t y) const { return m_[x * ny + y]; }
+
+    [[nodiscard]] bool s(size_t x, size_t y) const { return s_[x * ny + y]; }
 
 private:
     // Step 1: modify velocity value
@@ -112,9 +113,9 @@ private:
         {
             for (size_t j = 1; j != max_coord.y(); j++)
             {
-                if (s[i * ny + j] != 0.f && s[i * ny + j - 1] != 0.f)
+                if (s(i, j) && s(i, j - 1))
                 {
-                    v(i * ny + j) += gravity * dt;
+                    v(i, j) += gravity * dt;
                 }
             }
         }
@@ -125,27 +126,24 @@ private:
     {
         float cp = density_ * h / dt;
 
-        auto solve_at = [&](size_t i, size_t j)
+        auto solve_at = [&](size_t x, size_t y)
         {
-            if (s[i * ny + j] == 0.f) return;
+            if (!s(x, y)) return;
 
-            float sx0 = s[(i - 1) * ny + j];
-            float sx1 = s[(i + 1) * ny + j];
-            float sy0 = s[i * ny + j - 1];
-            float sy1 = s[i * ny + j + 1];
+            float sx0 = s(x - 1, y);
+            float sx1 = s(x + 1, y);
+            float sy0 = s(x, y - 1);
+            float sy1 = s(x, y + 1);
             float sum = sx0 + sx1 + sy0 + sy1;
-
             if (sum == 0.f) return;
 
-            float div = u((i + 1) * ny + j) - u(i * ny + j) + v(i * ny + j + 1) - v(i * ny + j);
-
-            float pk = -div / sum;
-            pk *= over_relaxation;
-            p[i * ny + j] += cp * pk;
-            u(i * ny + j) -= sx0 * pk;
-            u((i + 1) * ny + j) += sx1 * pk;
-            v(i * ny + j) -= sy0 * pk;
-            v(i * ny + j + 1) += sy1 * pk;
+            const float divergence = u(x + 1, y) - u(x, y) + v(x, y + 1) - v(x, y);
+            float delta = -over_relaxation * divergence / sum;
+            p[x * ny + y] += cp * delta;
+            u(x, y) -= sx0 * delta;
+            u(x + 1, y) += sx1 * delta;
+            v(x, y) -= sy0 * delta;
+            v(x, y + 1) += sy1 * delta;
         };
 
         if (parallel_solver)
@@ -185,28 +183,28 @@ private:
     {
         for (size_t i = 0; i != nx; i++)
         {
-            u(i * ny + 0) = u(i * ny + 1);
-            u(i * ny + ny - 1) = u(i * ny + ny - 2);
+            u(i, 0) = u(i, 1);
+            u(i, ny - 1) = u(i, ny - 2);
         }
 
         for (size_t j = 0; j != ny; j++)
         {
-            v(0 * ny + j) = v(1 * ny + j);
-            v((nx - 1) * ny + j) = v((nx - 2) * ny + j);
+            v(0, j) = v(1, j);
+            v(nx - 1, j) = v(nx - 2, j);
         }
     }
 
     [[nodiscard]] constexpr float AvgU(size_t i, size_t j) const
     {
-        return (u(i * ny + j - 1) + u(i * ny + j) + u((i + 1) * ny + j - 1) + u((i + 1) * ny + j)) * 0.25f;
+        return (u(i, j - 1) + u(i, j) + u(i + 1, j - 1) + u(i + 1, j)) * 0.25f;
     }
 
     [[nodiscard]] constexpr float AvgV(size_t i, size_t j) const
     {
-        return (v((i - 1) * ny + j) + v(i * ny + j) + v((i - 1) * ny + j + 1) + v(i * ny + j + 1)) * 0.25f;
+        return (v(i - 1, j) + v(i, j) + v(i - 1, j + 1) + v(i, j + 1)) * 0.25f;
     }
 
-    using ValueGetterMethod = const float& (EulerFluidSimulation::*)(size_t i) const;
+    using ValueGetterMethod = const float& (EulerFluidSimulation::*)(size_t x, size_t y) const;
 
     template <auto getter>
     [[nodiscard]] constexpr float SampleField(Vec2f xy, const Vec2f& delta) const
@@ -218,10 +216,10 @@ private:
 
         float sx = 1.f - tx;
         float sy = 1.f - ty;
-        float a = std::invoke(getter, this, p0.x() * ny + p0.y());
-        float b = std::invoke(getter, this, x1 * ny + p0.y());
-        float c = std::invoke(getter, this, x1 * ny + y1);
-        float d = std::invoke(getter, this, p0.x() * ny + y1);
+        float a = std::invoke(getter, this, p0.x(), p0.y());
+        float b = std::invoke(getter, this, x1, p0.y());
+        float c = std::invoke(getter, this, x1, y1);
+        float d = std::invoke(getter, this, p0.x(), y1);
         return sx * sy * a + tx * sy * b + tx * ty * c + sx * ty * d;
     }
 
@@ -239,17 +237,17 @@ private:
                 const auto fij = Vec2f{fi, static_cast<float>(j)};
 
                 // u component
-                if (s[i * ny + j] != 0.f && s[(i - 1) * ny + j] != 0.f && j + 1 < ny)
+                if (s(i, j) && s(i - 1, j) && j + 1 < ny)
                 {
-                    Vec2f uv{u(i * ny + j), AvgV(i, j)};
+                    Vec2f uv{u(i, j), AvgV(i, j)};
                     auto xy = fij * h + sampling_delta_u_ - dt * uv;
                     new_uv_[i * ny + j].x() = SampleField<u_getter>(xy, sampling_delta_u_);
                 }
 
                 // v component
-                if (s[i * ny + j] != 0.f && s[i * ny + j - 1] != 0.f && i + 1 < nx)
+                if (s(i, j) && s(i, j - 1) && i + 1 < nx)
                 {
-                    Vec2f uv{AvgU(i, j), v(i * ny + j)};
+                    Vec2f uv{AvgU(i, j), v(i, j)};
                     Vec2f xy = fij * h + sampling_delta_v_ - dt * uv;
                     new_uv_[i * ny + j].y() = SampleField<v_getter>(xy, sampling_delta_v_);
                 }
@@ -268,9 +266,9 @@ private:
         {
             for (size_t j = 1; j < ny - 1; j++)
             {
-                if (s[i * ny + j] != 0.f)
+                if (s(i, j))
                 {
-                    auto uv = Vec2f{u(i * ny + j) + u((i + 1) * ny + j), v(i * ny + j) + v(i * ny + j + 1)} * 0.5f;
+                    auto uv = Vec2f{u(i, j) + u(i + 1, j), v(i, j) + v(i, j + 1)} * 0.5f;
                     auto xy = Vec2uz{i, j}.Cast<float>() * h + h2 - dt * uv;
                     new_m_[i * ny + j] = SampleField<m_getter>(xy, sampling_delta_s_);
                 }
@@ -295,7 +293,7 @@ public:
     Vec2f sampling_delta_v_{h2, 0};
     Vec2f sampling_delta_s_{h2, h2};
     size_t num_cells_{};
-    std::vector<float> s{};
+    std::vector<bool> s_{};
     std::vector<Vec2f> uv_{};
     std::vector<Vec2f> new_uv_{};
     std::vector<float> m_{};

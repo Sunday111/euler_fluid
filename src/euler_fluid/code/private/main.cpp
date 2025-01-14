@@ -106,7 +106,7 @@ class EulerFluidApp : public klgl::Application
                         color = GetSciColor(s, 0.0, 1.0);
                     }
                 }
-                else if (f.s[x * ny + y] == 0.f)
+                else if (!f.s(x, y))
                 {
                     color = {};
                 }
@@ -235,9 +235,9 @@ class EulerFluidApp : public klgl::Application
             {
                 for (size_t j = 0; j != ny; j++)
                 {
-                    float s = 1;                                 // fluid
+                    bool s = 1;                                  // fluid
                     if (i == 0 || i == nx - 1 || j == 0) s = 0;  // solid
-                    f.s[i * ny + j] = s;
+                    f.s_[i * ny + j] = s;
                 }
             }
             gravity_ = -9.81f;
@@ -256,13 +256,13 @@ class EulerFluidApp : public klgl::Application
             {
                 for (size_t j = 0; j != ny; j++)
                 {
-                    float s = 1.0;                                 // fluid
-                    if (i == 0 || j == 0 || j == ny - 1) s = 0.0;  // solid
-                    f.s[i * ny + j] = s;
+                    bool s = 1;                                  // fluid
+                    if (i == 0 || j == 0 || j == ny - 1) s = 0;  // solid
+                    f.s_[i * ny + j] = s;
 
                     if (i == 1)
                     {
-                        f.u(i * ny + j) = inVel;
+                        f.u(i, j) = inVel;
                     }
                 }
             }
@@ -321,25 +321,25 @@ class EulerFluidApp : public klgl::Application
         {
             for (size_t j = 1; j < ny - 2; j++)
             {
-                f.s[i * ny + j] = 1;
+                f.s_[i * ny + j] = 1;
 
                 const edt::Vec2f delta = (edt::Vec2<size_t>(i, j).Cast<float>() + .5f) * f.h - position;
                 if (delta.SquaredLength() < squared_radius)
                 {
-                    f.s[i * ny + j] = 0;
+                    f.s_[i * ny + j] = 0;
                     if (scene_type_ == SceneType::Paint)
                     {
-                        f.m_[i * ny + j] = .5f + .5f * std::sin(GetTimeSeconds());
+                        f.m(i, j) = .5f + .5f * std::sin(GetTimeSeconds());
                     }
                     else
                     {
-                        f.m_[i * ny + j] = 1;
+                        f.m(i, j) = 1;
                     }
 
-                    f.u(i * ny + j) = v.x();
-                    f.u((i + 1) * ny + j) = v.x();
-                    f.v(i * ny + j) = v.y();
-                    f.v(i * ny + j + 1) = v.y();
+                    f.u(i, j) = v.x();
+                    f.u(i + 1, j) = v.x();
+                    f.v(i, j) = v.y();
+                    f.v(i, j + 1) = v.y();
                 }
             }
         }
