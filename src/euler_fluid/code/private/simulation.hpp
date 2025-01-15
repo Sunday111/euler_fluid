@@ -209,7 +209,7 @@ private:
     template <auto getter>
     [[nodiscard]] constexpr float SampleField(Vec2f xy, const Vec2f& delta) const
     {
-        xy = edt::Math::Clamp(xy, {h, h}, grid_size.Cast<float>() * h);
+        xy = edt::Math::Clamp(xy + delta, {h, h}, grid_size.Cast<float>() * h);
         auto p0 = edt::Math::ElementwiseMin(((xy - delta) * h1).Cast<size_t>(), grid_size - 1);
         auto [tx, ty] = (((xy - delta) - p0.Cast<float>() * h) * h1).Tuple();
         auto [x1, y1] = edt::Math::ElementwiseMin(p0 + 1, max_coord).Tuple();
@@ -240,7 +240,7 @@ private:
                 if (s(i, j) && s(i - 1, j) && j + 1 < ny)
                 {
                     Vec2f uv{u(i, j), AvgV(i, j)};
-                    auto xy = fij * h + sampling_delta_u_ - dt * uv;
+                    auto xy = fij * h - dt * uv;
                     new_uv_[i * ny + j].x() = SampleField<u_getter>(xy, sampling_delta_u_);
                 }
 
@@ -248,7 +248,7 @@ private:
                 if (s(i, j) && s(i, j - 1) && i + 1 < nx)
                 {
                     Vec2f uv{AvgU(i, j), v(i, j)};
-                    Vec2f xy = fij * h + sampling_delta_v_ - dt * uv;
+                    Vec2f xy = fij * h - dt * uv;
                     new_uv_[i * ny + j].y() = SampleField<v_getter>(xy, sampling_delta_v_);
                 }
             }
@@ -269,7 +269,7 @@ private:
                 if (s(i, j))
                 {
                     auto uv = Vec2f{u(i, j) + u(i + 1, j), v(i, j) + v(i, j + 1)} * 0.5f;
-                    auto xy = Vec2uz{i, j}.Cast<float>() * h + h2 - dt * uv;
+                    auto xy = Vec2uz{i, j}.Cast<float>() * h - dt * uv;
                     new_m_[i * ny + j] = SampleField<m_getter>(xy, sampling_delta_s_);
                 }
             }
