@@ -205,8 +205,7 @@ private:
     }
 
     using ValueGetterMethod = const float& (EulerFluidSimulation::*)(size_t x, size_t y) const;
-
-    template <auto getter>
+    template <ValueGetterMethod getter>
     [[nodiscard]] constexpr float SampleField(Vec2f xy, const Vec2f& delta) const
     {
         xy = edt::Math::Clamp(xy + delta, {h, h}, grid_size.Cast<float>() * h);
@@ -226,8 +225,6 @@ private:
     void AdvectVelocity(float dt)
     {
         new_uv_ = uv_;
-        constexpr ValueGetterMethod u_getter = &EulerFluidSimulation::u;
-        constexpr ValueGetterMethod v_getter = &EulerFluidSimulation::v;
 
         for (size_t i = 1; i != nx; i++)
         {
@@ -241,7 +238,7 @@ private:
                 {
                     Vec2f uv{u(i, j), AvgV(i, j)};
                     auto xy = fij * h - dt * uv;
-                    new_uv_[i * ny + j].x() = SampleField<u_getter>(xy, sampling_delta_u_);
+                    new_uv_[i * ny + j].x() = SampleField<&EulerFluidSimulation::u>(xy, sampling_delta_u_);
                 }
 
                 // v component
@@ -249,7 +246,7 @@ private:
                 {
                     Vec2f uv{AvgU(i, j), v(i, j)};
                     Vec2f xy = fij * h - dt * uv;
-                    new_uv_[i * ny + j].y() = SampleField<v_getter>(xy, sampling_delta_v_);
+                    new_uv_[i * ny + j].y() = SampleField<&EulerFluidSimulation::v>(xy, sampling_delta_v_);
                 }
             }
         }
@@ -260,7 +257,6 @@ private:
     void AdvectSmoke(float dt)
     {
         new_m_ = m_;
-        constexpr ValueGetterMethod m_getter = &EulerFluidSimulation::m;
 
         for (size_t i = 1; i < nx - 1; i++)
         {
@@ -270,7 +266,7 @@ private:
                 {
                     auto uv = Vec2f{u(i, j) + u(i + 1, j), v(i, j) + v(i, j + 1)} * 0.5f;
                     auto xy = Vec2uz{i, j}.Cast<float>() * h - dt * uv;
-                    new_m_[i * ny + j] = SampleField<m_getter>(xy, sampling_delta_s_);
+                    new_m_[i * ny + j] = SampleField<&EulerFluidSimulation::m>(xy, sampling_delta_s_);
                 }
             }
         }
