@@ -9,6 +9,4 @@ set_generic_compiler_options(euler_fluid PRIVATE)
 target_link_libraries(euler_fluid PRIVATE klgl)
 target_include_directories(euler_fluid PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/code/public)
 target_include_directories(euler_fluid PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/code/private)
-
-find_package(TBB REQUIRED COMPONENTS tbb)
-target_link_libraries(euler_fluid PRIVATE tbb)
+include(${CMAKE_CURRENT_SOURCE_DIR}/tbb.cmake)

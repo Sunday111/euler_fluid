@@ -141,6 +141,9 @@ add_subdirectory(${YAE_klgl_SOURCES} yae_modules/cloned_repositories/Sunday111/k
 set(YAE_euler_fluid_SOURCES src/euler_fluid)
 add_subdirectory(${YAE_euler_fluid_SOURCES} yae_modules/src/euler_fluid SYSTEM)
 
+set(YAE_klgl_compute_shader_example_SOURCES cloned_repositories/Sunday111/klgl/examples/compute_shader)
+add_subdirectory(${YAE_klgl_compute_shader_example_SOURCES} yae_modules/cloned_repositories/Sunday111/klgl/examples/compute_shader SYSTEM)
+
 set(YAE_klgl_geometry_shader_SOURCES cloned_repositories/Sunday111/klgl/examples/geometry_shader)
 add_subdirectory(${YAE_klgl_geometry_shader_SOURCES} yae_modules/cloned_repositories/Sunday111/klgl/examples/geometry_shader SYSTEM)
 
